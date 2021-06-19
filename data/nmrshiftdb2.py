@@ -77,7 +77,7 @@ def add_mol(mol_dict, mol):
         bond_fea2 = np.eye(len(stereo_list), dtype=np.int)[[stereo_list.index(str(b.GetStereo())) for b in mol.GetBonds()]]
         bond_fea3 = [[b.GetIsConjugated(), b.IsInRing()] for b in mol.GetBonds()]   
         
-        edge_attr = np.concatenate([bond_fea1, bond_fea2, bond_fea3], 1)
+        edge_attr = np.concatenate([bond_fea1, bond_fea2[:,:-1], bond_fea3], 1)
         edge_attr = np.vstack([edge_attr, edge_attr])
         
         bond_loc = np.array([[b.GetBeginAtomIdx(), b.GetEndAtomIdx()] for b in mol.GetBonds()], dtype=np.int)
