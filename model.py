@@ -3,7 +3,6 @@ import time
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -63,7 +62,7 @@ class nmrMPNN(nn.Module):
             hidden_feats = node_feats.unsqueeze(0)
 
             for _ in range(self.num_step_message_passing):
-                node_feats = F.relu(self.gnn_layer(g, node_feats, edge_feats))
+                node_feats = torch.relu(self.gnn_layer(g, node_feats, edge_feats))
                 node_feats, hidden_feats = self.gru(node_feats.unsqueeze(0), hidden_feats)
                 node_feats = node_feats.squeeze(0)
             
