@@ -18,7 +18,7 @@ class nmrMPNN(nn.Module):
                  edge_hidden_feats = 128,
                  num_step_message_passing = 6,
                  num_step_set2set = 6, num_layer_set2set = 3,
-                 predict_hidden_feats = 512, prob_dropout = 0.1, n_tasks = 1):
+                 predict_hidden_feats = 512, prob_dropout = 0.1):
         
         super(nmrMPNN, self).__init__()
 
@@ -48,7 +48,7 @@ class nmrMPNN(nn.Module):
             nn.Dropout(prob_dropout),
             nn.Linear(predict_hidden_feats, predict_hidden_feats), nn.ReLU(),
             nn.Dropout(prob_dropout),
-            nn.Linear(predict_hidden_feats, n_tasks)
+            nn.Linear(predict_hidden_feats, 1)
         )                           
                                
     def forward(self, g):
