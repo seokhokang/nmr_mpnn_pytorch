@@ -75,7 +75,7 @@ class nmrMPNN(nn.Module):
         return out
 
         
-def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_intv = 1000):
+def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_intv = 1000, n_forward_pass = 5):
 
     cuda = torch.device('cuda:0')
     
@@ -125,7 +125,7 @@ def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_
                 masks = batchdata[2].numpy()
                 
                 shifts = shifts[masks]
-                predictions_list = [net(inputs).cpu().numpy()[masks] for _ in range(5)]
+                predictions_list = [net(inputs).cpu().numpy()[masks] for _ in range(n_forward_pass)]
                 predictions = np.mean(predictions_list, 0)
     
                 loss = np.abs(shifts - predictions)
@@ -136,7 +136,7 @@ def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_
         val_loss = val_loss/val_cnt
         
         val_log[epoch] = val_loss
-        print('--- validation, processed %d, current MAE %.3f, best MAE %.3f' %(val_cnt, val_loss, np.min(val_log[:epoch + 1])))
+        print('--- validation, processed %d, current MAE %.3f, best MAE %.3f' %(val_loader.dataset.__len__(), val_loss, np.min(val_log[:epoch + 1])))
         
         lr_scheduler.step(val_loss)
         
@@ -153,7 +153,7 @@ def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_
     return net
     
 
-def inference(net, test_loader):
+def inference(net, test_loader, n_forward_pass = 30):
     
     cuda = torch.device('cuda:0')
     
@@ -166,7 +166,7 @@ def inference(net, test_loader):
             inputs = batchdata[0].to(cuda)
             masks = batchdata[2].numpy()
 
-            tsty_pred.append(np.array([net(inputs).cpu().numpy()[masks] for _ in range(30)]).transpose())
+            tsty_pred.append(np.array([net(inputs).cpu().numpy()[masks] for _ in range(n_forward_pass)]).transpose())
 
     tsty_pred = np.vstack(tsty_pred)
     
