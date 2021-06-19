@@ -14,7 +14,7 @@ from util import MC_dropout
 class nmrMPNN(nn.Module):
 
     def __init__(self, node_in_feats, edge_in_feats,
-                 node_hidden_feats = 64, node_out_feats = 64,
+                 node_hidden_feats = 128, node_out_feats = 64,
                  edge_hidden_feats = 128,
                  num_step_message_passing = 6,
                  num_step_set2set = 6, num_layer_set2set = 3,
