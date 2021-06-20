@@ -29,15 +29,15 @@ class GraphDataset():
         self.smi = mol_dict['smi']
 
         self.n_csum = np.concatenate([[0], np.cumsum(self.n_node)])
-        self.ne_csum = np.concatenate([[0], np.cumsum(self.n_edge)])
+        self.e_csum = np.concatenate([[0], np.cumsum(self.n_edge)])
         
 
     def __getitem__(self, idx):
 
-        g = graph((self.src[self.ne_csum[idx]:self.ne_csum[idx+1]], self.dst[self.ne_csum[idx]:self.ne_csum[idx+1]]))
+        g = graph((self.src[self.e_csum[idx]:self.e_csum[idx+1]], self.dst[self.e_csum[idx]:self.e_csum[idx+1]]))
         if g.num_nodes()==0: g.add_nodes(1)
         g.ndata['attr'] = torch.from_numpy(self.node_attr[self.n_csum[idx]:self.n_csum[idx+1]]).float()
-        g.edata['edge_attr'] = torch.from_numpy(self.edge_attr[self.ne_csum[idx]:self.ne_csum[idx+1]]).float()
+        g.edata['edge_attr'] = torch.from_numpy(self.edge_attr[self.e_csum[idx]:self.e_csum[idx+1]]).float()
 
         shift = self.shift[self.n_csum[idx]:self.n_csum[idx+1]].astype(np.float)
         mask = self.mask[self.n_csum[idx]:self.n_csum[idx+1]]
