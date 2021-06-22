@@ -75,13 +75,12 @@ class nmrMPNN(nn.Module):
         return out
 
         
-def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_intv = 1000, n_forward_pass = 5):
+def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_path, max_epochs = 500, print_intv = 1000, n_forward_pass = 5):
 
     cuda = torch.device('cuda:0')
     
     train_size = train_loader.dataset.__len__()
     batch_size = train_loader.batch_size
-    trn_shift_std = np.std(np.hstack([inst[1][inst[2]] for inst in iter(train_loader.dataset)]))
 
     loss_fn = nn.L1Loss()
     optimizer = Adam(net.parameters(), lr=1e-3)
@@ -95,23 +94,28 @@ def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_
         start_time = time.time()
         for batchidx, batchdata in enumerate(train_loader):
 
-            inputs = batchdata[0].to(cuda)
-            shifts = batchdata[1].to(cuda)
-            masks = batchdata[2].to(cuda)
+            inputs, shifts, masks = batchdata
             
-            shifts = shifts[masks]
+            shifts = (shifts[masks] - train_y_mean) / train_y_std
+            
+            inputs = inputs.to(cuda)
+            shifts = shifts.to(cuda)
+            masks = masks.to(cuda)
+            
             predictions = net(inputs)[masks]
 
-            loss = loss_fn(predictions, shifts) / trn_shift_std 
+            loss = loss_fn(predictions, shifts)
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
+            train_loss = loss.detach().item() * train_y_std
+            
             if (1 + batchidx) % print_intv == 0:
-                print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  batch_size * (1 + batchidx), train_size, loss.detach().item() * trn_shift_std, (time.time()-start_time)/60))
+                print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  batch_size * (1 + batchidx), train_size, train_loss, (time.time()-start_time)/60))
 
-        print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  train_size, train_size, loss.detach().item() * trn_shift_std, (time.time()-start_time)/60))
+        print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  train_size, train_size, train_loss, (time.time()-start_time)/60))
     
         # validation
         net.eval()
@@ -126,7 +130,7 @@ def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_
                 
                 shifts = shifts[masks]
                 predictions_list = [net(inputs).cpu().numpy()[masks] for _ in range(n_forward_pass)]
-                predictions = np.mean(predictions_list, 0)
+                predictions = np.mean(predictions_list, 0) * train_y_std + train_y_mean
     
                 loss = np.abs(shifts - predictions)
                 
@@ -153,7 +157,7 @@ def training(net, train_loader, val_loader, model_path, max_epochs = 500, print_
     return net
     
 
-def inference(net, test_loader, n_forward_pass = 30):
+def inference(net, test_loader, train_y_mean, train_y_std, n_forward_pass = 30):
     
     cuda = torch.device('cuda:0')
     
@@ -168,6 +172,6 @@ def inference(net, test_loader, n_forward_pass = 30):
 
             tsty_pred.append(np.array([net(inputs).cpu().numpy()[masks] for _ in range(n_forward_pass)]).transpose())
 
-    tsty_pred = np.vstack(tsty_pred)
+    tsty_pred = np.vstack(tsty_pred) * train_y_std + train_y_mean
     
     return np.mean(tsty_pred, 1)

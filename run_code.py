@@ -19,6 +19,10 @@ edge_dim = data.edge_attr.shape[1]
 
 train_set, val_set, test_set = split_dataset(data, data_split, shuffle=True, random_state=random_seed)
 
+train_y = np.hstack([data[idx][1] for idx in train_set.indices])
+train_y_mean = np.mean(train_y)
+train_y_std = np.std(train_y)
+
 train_loader = DataLoader(dataset=train_set, batch_size=batch_size, shuffle=True, collate_fn=collate_reaction_graphs, drop_last=True)
 val_loader = DataLoader(dataset=val_set, batch_size=batch_size * 10, shuffle=False, collate_fn=collate_reaction_graphs)
 test_loader = DataLoader(dataset=test_set, batch_size=batch_size * 10, shuffle=False, collate_fn=collate_reaction_graphs)
@@ -33,11 +37,11 @@ print('--- model_path:', model_path)
 
 
 # training
-if use_pretrain == False: net = training(net, train_loader, val_loader, model_path)
+if use_pretrain == False: net = training(net, train_loader, val_loader, train_y_mean, train_y_std, model_path)
 
 # inference
 net.load_state_dict(torch.load(model_path))
-tsty_pred = inference(net, test_loader)
+tsty_pred = inference(net, test_loader, train_y_mean, train_y_std)
 
 tsty = np.hstack([inst[1][inst[2]] for inst in iter(test_loader.dataset)])
 
