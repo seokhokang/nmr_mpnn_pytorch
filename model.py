@@ -83,7 +83,7 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
     batch_size = train_loader.batch_size
 
     loss_fn = nn.L1Loss()
-    optimizer = Adam(net.parameters(), lr=1e-3)
+    optimizer = Adam(net.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10, min_lr=1e-6, verbose=True)
 
     val_log = np.zeros(max_epochs)
