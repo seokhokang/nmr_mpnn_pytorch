@@ -8,7 +8,7 @@ from util import collate_reaction_graphs
 from model import nmrMPNN, training, inference
 
 data_split = [0.8, 0.1, 0.1]
-batch_size = 32
+batch_size = 128
 use_pretrain = False
 model_path = './nmr_model.pt'
 random_seed = 1
