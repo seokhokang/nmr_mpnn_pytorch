@@ -5,6 +5,7 @@ from rdkit.Chem import AllChem, ChemicalFeatures
     
 # the dataset can be downloaded from
 # https://nmrshiftdb.nmr.uni-koeln.de/portal/js_pane/P-Help
+# nmrshiftdb2withsignals.sd
 
 
 def get_atom_shifts(mol):
@@ -40,25 +41,31 @@ def add_mol(mol_dict, mol):
 
     def _RS(atom):
         
-        if atom.HasProp('_CIPCode'): RS_list = [(atom.GetProp('_CIPCode') == 'R'), (atom.GetProp('_CIPCode') == 'S')] 
-        else: RS_list = [0, 0]
+        if atom.HasProp('_CIPCode'):
+            RS_list = [(atom.GetProp('_CIPCode') == 'R'), (atom.GetProp('_CIPCode') == 'S')] 
+        else:
+            RS_list = [0, 0]
 
         return RS_list
+        
 
     n_node = mol.GetNumAtoms()
     n_edge = mol.GetNumBonds() * 2
 
-    atom_fea1 = np.eye(len(atom_list), dtype=np.int)[[atom_list.index(a.GetSymbol()) for a in mol.GetAtoms()]]
-    atom_fea2 = np.eye(len(hybridization_list), dtype=np.int)[[hybridization_list.index(str(a.GetHybridization())) for a in mol.GetAtoms()]]
-    atom_fea3 = [[a.IsInRingSize(s) for s in ringsize_list] for a in mol.GetAtoms()] 
-    atom_fea4 = [[a.GetAtomicNum(), a.GetDegree(), a.GetFormalCharge(),
-                  a.GetTotalNumHs(), a.GetImplicitValence(), a.GetNumRadicalElectrons(),
-                  a.IsInRing(), a.GetIsAromatic()] for a in mol.GetAtoms()]   
-    D_list, A_list = _DA(mol)    
-    atom_fea5 = [[(j in D_list), (j in A_list)] for j in range(mol.GetNumAtoms())]
-    atom_fea6 = [_RS(a) for a in mol.GetAtoms()]
+    D_list, A_list = _DA(mol)
+    rings = mol.GetRingInfo().AtomRings()
+    atom_fea1 = np.eye(len(atom_list), dtype = bool)[[atom_list.index(a.GetSymbol()) for a in mol.GetAtoms()]]
+    atom_fea2 = np.eye(len(charge_list), dtype = bool)[[charge_list.index(a.GetFormalCharge()) for a in mol.GetAtoms()]][:,:-1]
+    atom_fea3 = np.eye(len(degree_list), dtype = bool)[[degree_list.index(a.GetDegree()) for a in mol.GetAtoms()]][:,:-1]
+    atom_fea4 = np.eye(len(hybridization_list), dtype = bool)[[hybridization_list.index(str(a.GetHybridization())) for a in mol.GetAtoms()]][:,:-2]
+    atom_fea5 = np.eye(len(hydrogen_list), dtype = bool)[[hydrogen_list.index(a.GetTotalNumHs()) for a in mol.GetAtoms()]][:,:-1]
+    atom_fea6 = np.eye(len(valence_list), dtype = bool)[[valence_list.index(a.GetTotalValence()) for a in mol.GetAtoms()]][:,:-1]
+    atom_fea7 = np.array([[(j in D_list), (j in A_list)] for j in range(mol.GetNumAtoms())], dtype = bool)
+    atom_fea8 = np.array([_RS(a) for a in mol.GetAtoms()], dtype = bool)
+    atom_fea9 = np.array([[a.IsInRingSize(s) for s in ringsize_list] for a in mol.GetAtoms()], dtype = bool)
+    atom_fea10 = np.array([[a.GetIsAromatic(), a.IsInRing()] for a in mol.GetAtoms()], dtype = bool)
     
-    node_attr = np.concatenate([atom_fea1, atom_fea2[:,2:], atom_fea3, atom_fea4, atom_fea5, atom_fea6], 1)
+    node_attr = np.concatenate([atom_fea1, atom_fea2, atom_fea3, atom_fea4, atom_fea5, atom_fea6, atom_fea7, atom_fea8, atom_fea9, atom_fea10], 1)
 
     shift = np.array([atom.GetDoubleProp('shift') for atom in mol.GetAtoms()])
     mask = np.array([atom.GetBoolProp('mask') for atom in mol.GetAtoms()])
@@ -73,14 +80,14 @@ def add_mol(mol_dict, mol):
     
     if n_edge > 0:
 
-        bond_fea1 = np.eye(len(bond_list), dtype=np.int)[[bond_list.index(str(b.GetBondType())) for b in mol.GetBonds()]]
-        bond_fea2 = np.eye(len(stereo_list), dtype=np.int)[[stereo_list.index(str(b.GetStereo())) for b in mol.GetBonds()]]
-        bond_fea3 = [[b.GetIsConjugated(), b.IsInRing()] for b in mol.GetBonds()]   
+        bond_fea1 = np.eye(len(bond_list), dtype = bool)[[bond_list.index(str(b.GetBondType())) for b in mol.GetBonds()]]
+        bond_fea2 = np.eye(len(stereo_list), dtype = bool)[[stereo_list.index(str(b.GetStereo())) for b in mol.GetBonds()]][:,:-1]
+        bond_fea3 = [[b.IsInRing(), b.GetIsConjugated()] for b in mol.GetBonds()]   
         
-        edge_attr = np.concatenate([bond_fea1, bond_fea2[:,:-1], bond_fea3], 1)
+        edge_attr = np.concatenate([bond_fea1, bond_fea2, bond_fea3], 1)
         edge_attr = np.vstack([edge_attr, edge_attr])
         
-        bond_loc = np.array([[b.GetBeginAtomIdx(), b.GetEndAtomIdx()] for b in mol.GetBonds()], dtype=np.int)
+        bond_loc = np.array([[b.GetBeginAtomIdx(), b.GetEndAtomIdx()] for b in mol.GetBonds()], dtype = int)
         src = np.hstack([bond_loc[:,0], bond_loc[:,1]])
         dst = np.hstack([bond_loc[:,1], bond_loc[:,0]])
         
@@ -94,8 +101,13 @@ def add_mol(mol_dict, mol):
 molsuppl = Chem.SDMolSupplier('nmrshiftdb2withsignals.sd', removeHs = False)
 
 atom_list = ['Li','B','C','N','O','F','Na','Mg','Al','Si','P','S','Cl','K','Ti','Zn','Ge','As','Se','Br','Pd','Ag','Sn','Sb','Te','I','Hg','Tl','Pb','Bi']
-hybridization_list = ['UNSPECIFIED','S','SP','SP2','SP3','SP3D','SP3D2']
+charge_list = [1, 2, 3, -1, -2, -3, 0]
+degree_list = [1, 2, 3, 4, 5, 6, 0]
+valence_list = [1, 2, 3, 4, 5, 6, 0]
+hybridization_list = ['SP','SP2','SP3','SP3D','SP3D2','S','UNSPECIFIED']
+hydrogen_list = [1, 2, 3, 4, 0]
 ringsize_list = [3, 4, 5, 6, 7, 8]
+
 bond_list = ['SINGLE', 'DOUBLE', 'TRIPLE', 'AROMATIC']
 stereo_list = ['STEREOZ', 'STEREOE','STEREOANY','STEREONONE']
 
@@ -140,16 +152,16 @@ for i, mol in enumerate(molsuppl):
 
 print('%d/%d processed' %(i+1, len(molsuppl)))   
 
-mol_dict['n_node'] = np.array(mol_dict['n_node'])
-mol_dict['n_edge'] = np.array(mol_dict['n_edge'])
-mol_dict['node_attr'] = np.vstack(mol_dict['node_attr'])
-mol_dict['edge_attr'] = np.vstack(mol_dict['edge_attr'])
-mol_dict['src'] = np.hstack(mol_dict['src'])
-mol_dict['dst'] = np.hstack(mol_dict['dst'])
+mol_dict['n_node'] = np.array(mol_dict['n_node']).astype(int)
+mol_dict['n_edge'] = np.array(mol_dict['n_edge']).astype(int)
+mol_dict['node_attr'] = np.vstack(mol_dict['node_attr']).astype(bool)
+mol_dict['edge_attr'] = np.vstack(mol_dict['edge_attr']).astype(bool)
+mol_dict['src'] = np.hstack(mol_dict['src']).astype(int)
+mol_dict['dst'] = np.hstack(mol_dict['dst']).astype(int)
 mol_dict['shift'] = np.hstack(mol_dict['shift'])
-mol_dict['mask'] = np.hstack(mol_dict['mask'])
+mol_dict['mask'] = np.hstack(mol_dict['mask']).astype(bool)
 mol_dict['smi'] = np.array(mol_dict['smi'])
 
-for key in mol_dict.keys():  print(key, mol_dict[key].shape, mol_dict[key].dtype)
+for key in mol_dict.keys(): print(key, mol_dict[key].shape, mol_dict[key].dtype)
     
 np.savez_compressed('./dataset_graph.npz', data = [mol_dict])

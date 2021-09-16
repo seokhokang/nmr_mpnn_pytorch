@@ -7,85 +7,90 @@ import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from dgl.nn.pytorch import NNConv
+from dgl.nn.pytorch import NNConv, Set2Set
 
 from util import MC_dropout
+from sklearn.metrics import mean_absolute_error
+
 
 class nmrMPNN(nn.Module):
 
     def __init__(self, node_in_feats, edge_in_feats,
-                 node_hidden_feats = 128, node_out_feats = 64,
-                 edge_hidden_feats = 128,
-                 num_step_message_passing = 6,
-                 num_step_set2set = 6, num_layer_set2set = 3,
-                 predict_hidden_feats = 512, prob_dropout = 0.1):
+                 node_feats = 64,
+                 num_step_message_passing = 5,
+                 num_step_set2set = 3, num_layer_set2set = 1,
+                 hidden_feats = 512, prob_dropout = 0.1):
         
         super(nmrMPNN, self).__init__()
 
         self.project_node_feats = nn.Sequential(
-            nn.Linear(node_in_feats, node_hidden_feats), nn.ReLU(),
-            nn.Linear(node_hidden_feats, node_hidden_feats), nn.ReLU(),
-            nn.Linear(node_hidden_feats, node_hidden_feats), nn.ReLU(),
-            nn.Linear(node_hidden_feats, node_out_feats), nn.ReLU()
+            nn.Linear(node_in_feats, node_feats), nn.ReLU()
         )
+        
         self.num_step_message_passing = num_step_message_passing
+        
         edge_network = nn.Sequential(
-            nn.Linear(edge_in_feats, edge_hidden_feats), nn.ReLU(),
-            nn.Linear(edge_hidden_feats, edge_hidden_feats), nn.ReLU(),
-            nn.Linear(edge_hidden_feats, edge_hidden_feats), nn.ReLU(),
-            nn.Linear(edge_hidden_feats, node_out_feats * node_out_feats)
+            nn.Linear(edge_in_feats, node_feats * node_feats)
         )
+        
         self.gnn_layer = NNConv(
-            in_feats = node_out_feats,
-            out_feats = node_out_feats,
+            in_feats = node_feats,
+            out_feats = node_feats,
             edge_func = edge_network,
             aggregator_type = 'sum'
         )
-        self.gru = nn.GRU(node_out_feats, node_out_feats)
+        
+        self.gru = nn.GRU(node_feats, node_feats)
+        
+        self.readout = Set2Set(input_dim = node_feats * 2,
+                               n_iters = num_step_set2set,
+                               n_layers = num_layer_set2set)
                                
         self.predict = nn.Sequential(
-            nn.Linear(node_out_feats, predict_hidden_feats), nn.ReLU(),
-            nn.Dropout(prob_dropout),
-            nn.Linear(predict_hidden_feats, predict_hidden_feats), nn.ReLU(),
-            nn.Dropout(prob_dropout),
-            nn.Linear(predict_hidden_feats, predict_hidden_feats), nn.ReLU(),
-            nn.Linear(predict_hidden_feats, 1)
+            nn.Linear(node_feats * 6, hidden_feats), nn.PReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(hidden_feats, hidden_feats), nn.PReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(hidden_feats, 1)
         )                           
                                
-    def forward(self, g):
+    def forward(self, g, n_nodes, masks):
         
         def embed(g):
             
-            node_feats = g.ndata['attr']
+            node_feats = g.ndata['node_attr']
             edge_feats = g.edata['edge_attr']
             
             node_feats = self.project_node_feats(node_feats)
             hidden_feats = node_feats.unsqueeze(0)
-
-            for _ in range(self.num_step_message_passing):
-                node_feats = torch.relu(self.gnn_layer(g, node_feats, edge_feats))
-                node_feats, hidden_feats = self.gru(node_feats.unsqueeze(0), hidden_feats)
-                node_feats = node_feats.squeeze(0)
             
-            return node_feats
+            node_aggr = [node_feats]
+            for _ in range(self.num_step_message_passing):
+                node_feats = torch.relu(self.gnn_layer(g, node_feats, edge_feats)).unsqueeze(0)
+                node_feats, hidden_feats = self.gru(node_feats, hidden_feats)
+                node_feats = node_feats.squeeze(0)
+                
+            node_aggr.append(node_feats)
+            node_aggr = torch.cat(node_aggr, 1)
+            
+            return node_aggr
 
         node_embed_feats = embed(g)
-        out = self.predict(node_embed_feats).flatten()
+        graph_embed_feats = self.readout(g, node_embed_feats)        
+        graph_embed_feats = torch.repeat_interleave(graph_embed_feats, n_nodes, dim = 0)
+
+        out = self.predict(torch.hstack([node_embed_feats, graph_embed_feats])[masks]).flatten()
 
         return out
 
         
-def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_path, max_epochs = 500, print_intv = 1000, n_forward_pass = 5):
+def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_path, n_forward_pass = 5, cuda = torch.device('cuda:0')):
 
-    cuda = torch.device('cuda:0')
-    
     train_size = train_loader.dataset.__len__()
     batch_size = train_loader.batch_size
 
-    loss_fn = nn.L1Loss()
     optimizer = Adam(net.parameters(), lr=1e-3, weight_decay=1e-5)
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10, min_lr=1e-6, verbose=True)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=20, min_lr=1e-6, verbose=True)
 
+    max_epochs = 500
     val_log = np.zeros(max_epochs)
     for epoch in range(max_epochs):
         
@@ -94,53 +99,34 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
         start_time = time.time()
         for batchidx, batchdata in enumerate(train_loader):
 
-            inputs, shifts, masks = batchdata
+            inputs, n_nodes, shifts, masks = batchdata
             
             shifts = (shifts[masks] - train_y_mean) / train_y_std
             
             inputs = inputs.to(cuda)
+            n_nodes = n_nodes.to(cuda)
             shifts = shifts.to(cuda)
             masks = masks.to(cuda)
             
-            predictions = net(inputs)[masks]
-
-            loss = loss_fn(predictions, shifts)
+            predictions = net(inputs, n_nodes, masks)
+            
+            loss = torch.abs(predictions - shifts).mean()
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
             train_loss = loss.detach().item() * train_y_std
-            
-            if (1 + batchidx) % print_intv == 0:
-                print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  batch_size * (1 + batchidx), train_size, train_loss, (time.time()-start_time)/60))
 
-        print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  train_size, train_size, train_loss, (time.time()-start_time)/60))
+        #print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  train_size, train_size, train_loss, (time.time()-start_time)/60))
     
         # validation
-        net.eval()
-        MC_dropout(net)
-        val_loss, val_cnt = 0, 0
-        with torch.no_grad():
-            for batchidx, batchdata in enumerate(val_loader):
-            
-                inputs = batchdata[0].to(cuda)
-                shifts = batchdata[1].numpy()
-                masks = batchdata[2].numpy()
-                
-                shifts = shifts[masks]
-                predictions_list = [net(inputs).cpu().numpy()[masks] for _ in range(n_forward_pass)]
-                predictions = np.mean(predictions_list, 0) * train_y_std + train_y_mean
-    
-                loss = np.abs(shifts - predictions)
-                
-                val_loss += np.sum(loss)
-                val_cnt += len(loss)
-    
-        val_loss = val_loss/val_cnt
+        val_y = np.hstack([inst[-2][inst[-1]] for inst in iter(val_loader.dataset)])
+        val_y_pred = inference(net, val_loader, train_y_mean, train_y_std, n_forward_pass = n_forward_pass)
+        val_loss = mean_absolute_error(val_y, val_y_pred)
         
         val_log[epoch] = val_loss
-        print('--- validation, processed %d, current MAE %.3f, best MAE %.3f' %(val_loader.dataset.__len__(), val_loss, np.min(val_log[:epoch + 1])))
+        if epoch % 10 == 0: print('--- validation epoch %d, processed %d, current MAE %.3f, best MAE %.3f, time elapsed(min) %.2f' %(epoch, val_loader.dataset.__len__(), val_loss, np.min(val_log[:epoch + 1]), (time.time()-start_time)/60))
         
         lr_scheduler.step(val_loss)
         
@@ -148,7 +134,7 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
         if np.argmin(val_log[:epoch + 1]) == epoch:
             torch.save(net.state_dict(), model_path) 
         
-        elif np.argmin(val_log[:epoch + 1]) <= epoch - 20:
+        elif np.argmin(val_log[:epoch + 1]) <= epoch - 50:
             break
 
     print('training terminated at epoch %d' %epoch)
@@ -157,10 +143,8 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
     return net
     
 
-def inference(net, test_loader, train_y_mean, train_y_std, n_forward_pass = 30):
-    
-    cuda = torch.device('cuda:0')
-    
+def inference(net, test_loader, train_y_mean, train_y_std, n_forward_pass = 30, cuda = torch.device('cuda:0')):
+
     net.eval()
     MC_dropout(net)
     tsty_pred = []
@@ -168,9 +152,10 @@ def inference(net, test_loader, train_y_mean, train_y_std, n_forward_pass = 30):
         for batchidx, batchdata in enumerate(test_loader):
         
             inputs = batchdata[0].to(cuda)
-            masks = batchdata[2].numpy()
+            n_nodes = batchdata[1].to(cuda)
+            masks = batchdata[3].to(cuda)
 
-            tsty_pred.append(np.array([net(inputs).cpu().numpy()[masks] for _ in range(n_forward_pass)]).transpose())
+            tsty_pred.append(np.array([net(inputs, n_nodes, masks).cpu().numpy() for _ in range(n_forward_pass)]).transpose())
 
     tsty_pred = np.vstack(tsty_pred) * train_y_std + train_y_mean
     
