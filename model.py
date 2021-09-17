@@ -87,7 +87,7 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
     train_size = train_loader.dataset.__len__()
     batch_size = train_loader.batch_size
 
-    optimizer = Adam(net.parameters(), lr=1e-3, weight_decay=1e-5)
+    optimizer = Adam(net.parameters(), lr=1e-3, weight_decay=1e-10)
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=20, min_lr=1e-6, verbose=True)
 
     max_epochs = 500
