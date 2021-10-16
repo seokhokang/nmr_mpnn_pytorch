@@ -91,6 +91,7 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
     lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=20, min_lr=1e-6, verbose=True)
 
     max_epochs = 500
+    val_y = np.hstack([inst[-2][inst[-1]] for inst in iter(val_loader.dataset)])
     val_log = np.zeros(max_epochs)
     for epoch in range(max_epochs):
         
@@ -121,7 +122,6 @@ def training(net, train_loader, val_loader, train_y_mean, train_y_std, model_pat
         #print('--- training epoch %d, processed %d/%d, loss %.3f, time elapsed(min) %.2f' %(epoch,  train_size, train_size, train_loss, (time.time()-start_time)/60))
     
         # validation
-        val_y = np.hstack([inst[-2][inst[-1]] for inst in iter(val_loader.dataset)])
         val_y_pred = inference(net, val_loader, train_y_mean, train_y_std, n_forward_pass = n_forward_pass)
         val_loss = mean_absolute_error(val_y, val_y_pred)
         
