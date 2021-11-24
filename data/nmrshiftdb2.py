@@ -140,7 +140,7 @@ for i, mol in enumerate(molsuppl):
     try:
         Chem.SanitizeMol(mol)
         si = Chem.FindPotentialStereo(mol)
-        for element in rsi:
+        for element in si:
             if str(element.type) == 'Atom_Tetrahedral' and str(element.specified) == 'Specified':
                 mol.GetAtomWithIdx(element.centeredOn).SetProp('Chirality', str(element.descriptor))
             elif str(element.type) == 'Bond_Double' and str(element.specified) == 'Specified':
