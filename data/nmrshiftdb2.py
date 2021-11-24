@@ -39,14 +39,25 @@ def add_mol(mol_dict, mol):
         
         return D_list, A_list
 
-    def _RS(atom):
-        
-        if atom.HasProp('_CIPCode'):
-            RS_list = [(atom.GetProp('_CIPCode') == 'R'), (atom.GetProp('_CIPCode') == 'S')] 
-        else:
-            RS_list = [0, 0]
+    def _chirality(atom):
 
-        return RS_list
+        if atom.HasProp('Chirality'):
+            #assert atom.GetProp('Chirality') in ['Tet_CW', 'Tet_CCW']
+            c_list = [(atom.GetProp('Chirality') == 'Tet_CW'), (atom.GetProp('Chirality') == 'Tet_CCW')] 
+        else:
+            c_list = [0, 0]
+
+        return c_list
+
+    def _stereochemistry(bond):
+
+        if bond.HasProp('Stereochemistry'):
+            #assert bond.GetProp('Stereochemistry') in ['Bond_Cis', 'Bond_Trans']
+            s_list = [(bond.GetProp('Stereochemistry') == 'Bond_Cis'), (bond.GetProp('Stereochemistry') == 'Bond_Trans')] 
+        else:
+            s_list = [0, 0]
+
+        return s_list    
         
 
     n_node = mol.GetNumAtoms()
@@ -61,7 +72,7 @@ def add_mol(mol_dict, mol):
     atom_fea5 = np.eye(len(hydrogen_list), dtype = bool)[[hydrogen_list.index(a.GetTotalNumHs()) for a in mol.GetAtoms()]][:,:-1]
     atom_fea6 = np.eye(len(valence_list), dtype = bool)[[valence_list.index(a.GetTotalValence()) for a in mol.GetAtoms()]][:,:-1]
     atom_fea7 = np.array([[(j in D_list), (j in A_list)] for j in range(mol.GetNumAtoms())], dtype = bool)
-    atom_fea8 = np.array([_RS(a) for a in mol.GetAtoms()], dtype = bool)
+    atom_fea8 = np.array([_chirality(a) for a in mol.GetAtoms()], dtype = bool)
     atom_fea9 = np.array([[a.IsInRingSize(s) for s in ringsize_list] for a in mol.GetAtoms()], dtype = bool)
     atom_fea10 = np.array([[a.GetIsAromatic(), a.IsInRing()] for a in mol.GetAtoms()], dtype = bool)
     
@@ -81,7 +92,7 @@ def add_mol(mol_dict, mol):
     if n_edge > 0:
 
         bond_fea1 = np.eye(len(bond_list), dtype = bool)[[bond_list.index(str(b.GetBondType())) for b in mol.GetBonds()]]
-        bond_fea2 = np.eye(len(stereo_list), dtype = bool)[[stereo_list.index(str(b.GetStereo())) for b in mol.GetBonds()]][:,:-1]
+        bond_fea2 = np.array([_stereochemistry(b) for b in mol.GetBonds()], dtype = bool)
         bond_fea3 = [[b.IsInRing(), b.GetIsConjugated()] for b in mol.GetBonds()]   
         
         edge_attr = np.concatenate([bond_fea1, bond_fea2, bond_fea3], 1)
@@ -109,7 +120,6 @@ hydrogen_list = [1, 2, 3, 4, 0]
 ringsize_list = [3, 4, 5, 6, 7, 8]
 
 bond_list = ['SINGLE', 'DOUBLE', 'TRIPLE', 'AROMATIC']
-stereo_list = ['STEREOZ', 'STEREOE','STEREOANY','STEREONONE']
 
 rdBase.DisableLog('rdApp.error') 
 rdBase.DisableLog('rdApp.warning')
@@ -129,8 +139,12 @@ for i, mol in enumerate(molsuppl):
 
     try:
         Chem.SanitizeMol(mol)
-        Chem.rdmolops.AssignAtomChiralTagsFromStructure(mol)
-        Chem.rdmolops.AssignStereochemistry(mol)
+        si = Chem.FindPotentialStereo(mol)
+        for element in rsi:
+            if str(element.type) == 'Atom_Tetrahedral' and str(element.specified) == 'Specified':
+                mol.GetAtomWithIdx(element.centeredOn).SetProp('Chirality', str(element.descriptor))
+            elif str(element.type) == 'Bond_Double' and str(element.specified) == 'Specified':
+                mol.GetBondWithIdx(element.centeredOn).SetProp('Stereochemistry', str(element.descriptor))
         assert '.' not in Chem.MolToSmiles(mol)
     except:
         continue
