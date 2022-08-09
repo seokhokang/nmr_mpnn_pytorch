@@ -36,7 +36,7 @@ class nmrMPNN(nn.Module):
             nn.Linear(edge_in_feats, embed_feats), nn.ReLU(),
             nn.Linear(embed_feats, embed_feats), nn.ReLU(),
             nn.Linear(embed_feats, embed_feats), nn.ReLU(),
-            nn.Linear(embed_feats, node_feats * node_feats)
+            nn.Linear(embed_feats, node_feats * node_feats), nn.ReLU()
         )
         
         self.gnn_layer = NNConv(
@@ -64,11 +64,10 @@ class nmrMPNN(nn.Module):
         def embed(g):
             
             node_feats = g.ndata['node_attr']
-            edge_feats = g.edata['edge_attr']
-            
             node_feats = self.project_node_feats(node_feats)
-            hidden_feats = node_feats.unsqueeze(0)
-            
+
+            edge_feats = g.edata['edge_attr']
+
             node_aggr = [node_feats]
             for _ in range(self.num_step_message_passing):
                 msg = self.gnn_layer(g, node_feats, edge_feats).unsqueeze(0)
