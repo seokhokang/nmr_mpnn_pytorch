@@ -16,7 +16,7 @@ from sklearn.metrics import mean_absolute_error
 class nmrMPNN(nn.Module):
 
     def __init__(self, node_in_feats, edge_in_feats,
-                 node_feats = 64,
+                 node_feats = 64, embed_feats = 256,
                  num_step_message_passing = 5,
                  num_step_set2set = 3, num_layer_set2set = 1,
                  hidden_feats = 512, prob_dropout = 0.1):
@@ -24,13 +24,19 @@ class nmrMPNN(nn.Module):
         super(nmrMPNN, self).__init__()
 
         self.project_node_feats = nn.Sequential(
-            nn.Linear(node_in_feats, node_feats), nn.ReLU()
+            nn.Linear(node_in_feats, embed_feats), nn.ReLU(),
+            nn.Linear(embed_feats, embed_feats), nn.ReLU(),
+            nn.Linear(embed_feats, embed_feats), nn.ReLU(),
+            nn.Linear(embed_feats, node_feats), nn.Tanh()
         )
         
         self.num_step_message_passing = num_step_message_passing
         
         edge_network = nn.Sequential(
-            nn.Linear(edge_in_feats, node_feats * node_feats)
+            nn.Linear(edge_in_feats, embed_feats), nn.ReLU(),
+            nn.Linear(embed_feats, embed_feats), nn.ReLU(),
+            nn.Linear(embed_feats, embed_feats), nn.ReLU(),
+            nn.Linear(embed_feats, node_feats * node_feats)
         )
         
         self.gnn_layer = NNConv(
@@ -47,8 +53,9 @@ class nmrMPNN(nn.Module):
                                n_layers = num_layer_set2set)
                                
         self.predict = nn.Sequential(
-            nn.Linear(node_feats * 6, hidden_feats), nn.PReLU(), nn.Dropout(prob_dropout),
-            nn.Linear(hidden_feats, hidden_feats), nn.PReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(node_feats * (1 + num_step_message_passing), hidden_feats), nn.ReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(hidden_feats, hidden_feats), nn.ReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(hidden_feats, hidden_feats), nn.ReLU(), 
             nn.Linear(hidden_feats, 1)
         )                           
                                
