@@ -71,11 +71,12 @@ class nmrMPNN(nn.Module):
             
             node_aggr = [node_feats]
             for _ in range(self.num_step_message_passing):
-                node_feats = torch.relu(self.gnn_layer(g, node_feats, edge_feats)).unsqueeze(0)
-                node_feats, hidden_feats = self.gru(node_feats, hidden_feats)
+                msg = self.gnn_layer(g, node_feats, edge_feats).unsqueeze(0)
+                _, node_feats = self.gru(msg, node_feats.unsqueeze(0))
                 node_feats = node_feats.squeeze(0)
                 
-            node_aggr.append(node_feats)
+                node_aggr.append(node_feats)
+                
             node_aggr = torch.cat(node_aggr, 1)
             
             return node_aggr
