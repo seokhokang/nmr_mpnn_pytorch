@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import torch
 from torch.utils.data import DataLoader
 from dgl.data.utils import split_dataset
@@ -15,6 +16,7 @@ batch_size = 128
 use_pretrain = False
 model_path = './model/nmr_model.pt'
 random_seed = 1
+if not os.path.exists('./model/'): os.makedirs('./model/')
 
 data = GraphDataset()
 train_set, val_set, test_set = split_dataset(data, data_split, shuffle=True, random_state=random_seed)

@@ -48,14 +48,14 @@ class nmrMPNN(nn.Module):
         
         self.gru = nn.GRU(node_feats, node_feats)
         
-        self.readout = Set2Set(input_dim = node_feats * 2,
+        self.readout = Set2Set(input_dim = node_feats * (1 + num_step_message_passing),
                                n_iters = num_step_set2set,
                                n_layers = num_layer_set2set)
                                
         self.predict = nn.Sequential(
-            nn.Linear(node_feats * (1 + num_step_message_passing), hidden_feats), nn.ReLU(), nn.Dropout(prob_dropout),
-            nn.Linear(hidden_feats, hidden_feats), nn.ReLU(), nn.Dropout(prob_dropout),
-            nn.Linear(hidden_feats, hidden_feats), nn.ReLU(), 
+            nn.Linear(node_feats * (1 + num_step_message_passing) * 3, hidden_feats), nn.PReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(hidden_feats, hidden_feats), nn.PReLU(), nn.Dropout(prob_dropout),
+            nn.Linear(hidden_feats, hidden_feats), nn.PReLU(), 
             nn.Linear(hidden_feats, 1)
         )                           
                                
